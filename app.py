@@ -7,6 +7,11 @@ from datetime import datetime, timedelta
 import folium
 from streamlit_folium import folium_static
 import calendar
+from google.cloud import storage
+from google.oauth2 import service_account
+import tempfile
+import os
+import json
 
 # Set page configuration
 st.set_page_config(
@@ -48,10 +53,41 @@ st.markdown("""
 st.markdown("<h1 class='main-header'>Tripify Events Explorer</h1>", unsafe_allow_html=True)
 st.markdown("<p class='subheader'>Discover events in Barcelona, Madrid, and Paris - perfect for travelers planning their next European adventure!</p>", unsafe_allow_html=True)
 
-# Connect to DuckDB
+# Connect to DuckDB with GCS integration
 @st.cache_resource
 def get_connection():
-    return duckdb.connect("events_exploitation.duckdb")
+    # Get GCS credentials from secrets
+    gcs_creds = st.secrets["connections"]["gcs"]
+    
+    # Create credentials object
+    credentials = service_account.Credentials.from_service_account_info(gcs_creds)
+    
+    # Initialize GCS client with credentials
+    storage_client = storage.Client(credentials=credentials, project=gcs_creds["project_id"])
+    
+    # Get the bucket and blob
+    bucket_name = st.secrets["gcs"]["bucket_name"]
+    blob_name = st.secrets["gcs"]["events_file"]
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+    
+    # Download the file to a temporary location
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.duckdb') as temp_file:
+        blob.download_to_filename(temp_file.name)
+        temp_path = temp_file.name
+    
+    # Connect to the downloaded DuckDB file
+    conn = duckdb.connect(temp_path)
+    
+    # Clean up the temporary file when the connection is closed
+    def cleanup():
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+    
+    # Register cleanup function to be called when the connection is closed
+    # conn.register_function("cleanup", cleanup)
+    
+    return conn
 
 conn = get_connection()
 
