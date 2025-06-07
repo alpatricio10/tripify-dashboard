@@ -12,6 +12,10 @@ from google.oauth2 import service_account
 import tempfile
 import os
 import json
+from neo4j import GraphDatabase
+import networkx as nx
+import matplotlib.pyplot as plt
+from collections import Counter
 
 # Set page configuration
 st.set_page_config(
@@ -52,6 +56,70 @@ st.markdown("""
 # Title and description
 st.markdown("<h1 class='main-header'>Tripify Events Explorer</h1>", unsafe_allow_html=True)
 st.markdown("<p class='subheader'>Discover events in Barcelona, Madrid, and Paris - perfect for travelers planning their next European adventure!</p>", unsafe_allow_html=True)
+
+# Neo4j Connection
+@st.cache_resource
+def get_neo4j_connection():
+    # Get Neo4j credentials from secrets
+    neo4j_creds = st.secrets["neo4j"]
+    
+    driver = GraphDatabase.driver(
+        neo4j_creds["uri"],
+        auth=(neo4j_creds["user"], neo4j_creds["password"])
+    )
+    return driver
+
+# Neo4j Query Functions
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_popular_cities():
+    driver = get_neo4j_connection()
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (c:City)<-[:IN]-(p:Post)
+            RETURN c.name as city, count(p) as post_count
+            ORDER BY post_count DESC
+        """)
+        return pd.DataFrame([dict(record) for record in result])
+
+@st.cache_data(ttl=3600)
+def get_popular_activities():
+    driver = get_neo4j_connection()
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (a:Activity)<-[:INCLUDES]-(p:Post)
+            RETURN a.name as activity, count(p) as post_count
+            ORDER BY post_count DESC
+            LIMIT 10
+        """)
+        return pd.DataFrame([dict(record) for record in result])
+
+@st.cache_data(ttl=3600)
+def get_user_activity_stats():
+    driver = get_neo4j_connection()
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (u:User)
+            OPTIONAL MATCH (u)-[:CREATED]->(p:Post)
+            OPTIONAL MATCH (u)-[:LIKED]->(l:Post)
+            OPTIONAL MATCH (u)-[:FAVORITE]->(c:City)
+            RETURN 
+                count(DISTINCT u) as total_users,
+                count(DISTINCT p) as total_posts,
+                count(DISTINCT l) as total_likes,
+                count(DISTINCT c) as total_favorites
+        """)
+        return pd.DataFrame([dict(record) for record in result])
+
+@st.cache_data(ttl=3600)
+def get_city_activity_network():
+    driver = get_neo4j_connection()
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (c:City)<-[:IN]-(p:Post)-[:INCLUDES]->(a:Activity)
+            RETURN c.name as city, a.name as activity, count(*) as count
+            ORDER BY count DESC
+        """)
+        return pd.DataFrame([dict(record) for record in result])
 
 # Connect to DuckDB with GCS integration
 @st.cache_resource
@@ -260,7 +328,7 @@ def filter_events(df):
 filtered_events = filter_events(events_df)
 
 # Create tabs for different views
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Dashboard", "Event Map", "Event Search", "Calendar View", "About"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Dashboard", "Event Map", "Event Search", "Calendar View", "About", "Social Analytics"])
 
 # Main Dashboard Tab
 with tab1:
@@ -775,6 +843,97 @@ with tab5:
     st.markdown("### Contact")
     st.markdown("""
         If you have any questions or feedback about this application, please feel free to reach out!
+    """)
+
+# Social Analytics Tab (Neo4j Analysis)
+with tab6:
+    st.header("📊 Social Analytics")
+    st.markdown("""
+        This section provides insights from our social network data, showing how users interact with cities, activities, and posts.
+    """)
+    
+    # User Activity Statistics
+    st.subheader("User Activity Overview")
+    user_stats = get_user_activity_stats()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Users", f"{user_stats['total_users'].iloc[0]:,}")
+    with col2:
+        st.metric("Total Posts", f"{user_stats['total_posts'].iloc[0]:,}")
+    with col3:
+        st.metric("Total Likes", f"{user_stats['total_likes'].iloc[0]:,}")
+    with col4:
+        st.metric("Total Favorites", f"{user_stats['total_favorites'].iloc[0]:,}")
+    
+    # Popular Cities Analysis
+    st.subheader("Most Popular Cities")
+    popular_cities = get_popular_cities()
+    
+    fig = px.bar(
+        popular_cities,
+        x='city',
+        y='post_count',
+        title='Number of Posts by City',
+        labels={'post_count': 'Number of Posts', 'city': 'City'},
+        color='post_count',
+        color_continuous_scale='Viridis'
+    )
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Popular Activities Analysis
+    st.subheader("Top Activities")
+    popular_activities = get_popular_activities()
+    
+    fig = px.bar(
+        popular_activities,
+        x='activity',
+        y='post_count',
+        title='Most Popular Activities',
+        labels={'post_count': 'Number of Posts', 'activity': 'Activity'},
+        color='post_count',
+        color_continuous_scale='Viridis'
+    )
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # City-Activity Network Analysis
+    st.subheader("City-Activity Relationships")
+    city_activity = get_city_activity_network()
+    
+    # Create a heatmap of city-activity relationships
+    pivot_data = city_activity.pivot_table(
+        values='count',
+        index='city',
+        columns='activity',
+        fill_value=0
+    )
+    
+    fig = px.imshow(
+        pivot_data,
+        title='Activity Distribution Across Cities',
+        labels=dict(x="Activity", y="City", color="Count"),
+        aspect="auto",
+        color_continuous_scale='Viridis'
+    )
+    fig.update_layout(height=500)
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Additional Insights
+    st.subheader("Key Insights")
+    
+    # Calculate some additional metrics
+    total_activities = len(popular_activities)
+    avg_posts_per_city = popular_cities['post_count'].mean()
+    most_active_city = popular_cities.iloc[0]['city']
+    most_popular_activity = popular_activities.iloc[0]['activity']
+    
+    st.markdown(f"""
+        - There are **{total_activities}** different activities shared across the platform
+        - On average, each city has **{avg_posts_per_city:.1f}** posts
+        - **{most_active_city}** is the most active city in terms of posts
+        - **{most_popular_activity}** is the most frequently mentioned activity
     """)
 
 # Add footer
