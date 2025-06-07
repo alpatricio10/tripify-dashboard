@@ -7,3 +7,5 @@ streamlit-folium>=0.15.0
 google-cloud-storage>=2.16.0
 google-auth>=2.29.0
 neo4j>=5.17.0
+networkx>=3.2.1
+matplotlib>=3.8.2

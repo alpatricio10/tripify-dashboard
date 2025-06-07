@@ -121,6 +121,55 @@ def get_city_activity_network():
         """)
         return pd.DataFrame([dict(record) for record in result])
 
+@st.cache_data(ttl=3600)
+def get_user_network():
+    driver = get_neo4j_connection()
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (u1:User)-[:LIKED]->(p:Post)<-[:CREATED]-(u2:User)
+            WHERE u1 <> u2
+            RETURN u1.user_id as user1, u2.user_id as user2, count(*) as interaction_count
+            ORDER BY interaction_count DESC
+        """)
+        return pd.DataFrame([dict(record) for record in result])
+
+@st.cache_data(ttl=3600)
+def get_activity_network():
+    driver = get_neo4j_connection()
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (a1:Activity)<-[:INCLUDES]-(p:Post)-[:INCLUDES]->(a2:Activity)
+            WHERE a1 <> a2
+            RETURN a1.name as activity1, a2.name as activity2, count(*) as co_occurrence
+            ORDER BY co_occurrence DESC
+            LIMIT 50
+        """)
+        return pd.DataFrame([dict(record) for record in result])
+
+def create_network_graph(df, source_col, target_col, weight_col=None):
+    G = nx.Graph()
+    
+    # Add edges with weights if provided
+    if weight_col:
+        edges = list(zip(df[source_col], df[target_col], df[weight_col]))
+        G.add_weighted_edges_from(edges)
+    else:
+        edges = list(zip(df[source_col], df[target_col]))
+        G.add_edges_from(edges)
+    
+    return G
+
+def analyze_network(G):
+    metrics = {
+        'density': nx.density(G),
+        'avg_clustering': nx.average_clustering(G),
+        'avg_shortest_path': nx.average_shortest_path_length(G) if nx.is_connected(G) else 'Not connected',
+        'degree_centrality': nx.degree_centrality(G),
+        'betweenness_centrality': nx.betweenness_centrality(G),
+        'closeness_centrality': nx.closeness_centrality(G)
+    }
+    return metrics
+
 # Connect to DuckDB with GCS integration
 @st.cache_resource
 def get_connection():
@@ -865,6 +914,59 @@ with tab6:
         st.metric("Total Likes", f"{user_stats['total_likes'].iloc[0]:,}")
     with col4:
         st.metric("Total Favorites", f"{user_stats['total_favorites'].iloc[0]:,}")
+    
+    # Network Analysis Section
+    st.subheader("Network Analysis")
+    
+    # User Network Analysis
+    st.markdown("### User Interaction Network")
+    user_network = get_user_network()
+    if not user_network.empty:
+        G_user = create_network_graph(user_network, 'user1', 'user2', 'interaction_count')
+        user_metrics = analyze_network(G_user)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Network Density", f"{user_metrics['density']:.4f}")
+            st.metric("Average Clustering", f"{user_metrics['avg_clustering']:.4f}")
+        
+        with col2:
+            st.metric("Average Shortest Path", 
+                     f"{user_metrics['avg_shortest_path']:.2f}" if isinstance(user_metrics['avg_shortest_path'], float) 
+                     else user_metrics['avg_shortest_path'])
+        
+        # Plot user network
+        plt.figure(figsize=(10, 8))
+        pos = nx.spring_layout(G_user)
+        nx.draw(G_user, pos, with_labels=False, node_size=50, 
+                node_color='lightblue', alpha=0.6)
+        st.pyplot(plt)
+        plt.close()
+    
+    # Activity Network Analysis
+    st.markdown("### Activity Co-occurrence Network")
+    activity_network = get_activity_network()
+    if not activity_network.empty:
+        G_activity = create_network_graph(activity_network, 'activity1', 'activity2', 'co_occurrence')
+        activity_metrics = analyze_network(G_activity)
+        
+        # Display top activities by centrality
+        st.markdown("#### Most Central Activities")
+        centrality_df = pd.DataFrame({
+            'Activity': list(activity_metrics['degree_centrality'].keys()),
+            'Degree Centrality': list(activity_metrics['degree_centrality'].values()),
+            'Betweenness Centrality': list(activity_metrics['betweenness_centrality'].values()),
+            'Closeness Centrality': list(activity_metrics['closeness_centrality'].values())
+        })
+        st.dataframe(centrality_df.sort_values('Degree Centrality', ascending=False).head(10))
+        
+        # Plot activity network
+        plt.figure(figsize=(12, 10))
+        pos = nx.spring_layout(G_activity)
+        nx.draw(G_activity, pos, with_labels=True, node_size=100, 
+                node_color='lightgreen', alpha=0.6, font_size=8)
+        st.pyplot(plt)
+        plt.close()
     
     # Popular Cities Analysis
     st.subheader("Most Popular Cities")
