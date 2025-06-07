@@ -921,9 +921,18 @@ with tab6:
     # User Network Analysis
     st.markdown("### User Interaction Network")
     user_network = get_user_network()
+    
+    # Debug information
+    st.write("Debug - User Network Data Shape:", user_network.shape)
     if not user_network.empty:
+        st.write("Debug - Sample User Network Data:", user_network.head())
+        
         G_user = create_network_graph(user_network, 'user1', 'user2', 'interaction_count')
         user_metrics = analyze_network(G_user)
+        
+        # Debug information
+        st.write("Debug - Number of nodes in user network:", G_user.number_of_nodes())
+        st.write("Debug - Number of edges in user network:", G_user.number_of_edges())
         
         col1, col2 = st.columns(2)
         with col1:
@@ -935,20 +944,53 @@ with tab6:
                      f"{user_metrics['avg_shortest_path']:.2f}" if isinstance(user_metrics['avg_shortest_path'], float) 
                      else user_metrics['avg_shortest_path'])
         
-        # Plot user network
-        plt.figure(figsize=(10, 8))
-        pos = nx.spring_layout(G_user)
-        nx.draw(G_user, pos, with_labels=False, node_size=50, 
-                node_color='lightblue', alpha=0.6)
+        # Plot user network with improved visualization
+        plt.figure(figsize=(12, 8))
+        pos = nx.spring_layout(G_user, k=1, iterations=50)
+        
+        # Draw nodes
+        nx.draw_networkx_nodes(G_user, pos, 
+                             node_size=100,
+                             node_color='lightblue',
+                             alpha=0.6)
+        
+        # Draw edges with varying widths based on weight
+        edge_weights = [G_user[u][v]['weight'] for u, v in G_user.edges()]
+        max_weight = max(edge_weights) if edge_weights else 1
+        edge_widths = [2 * (w/max_weight) for w in edge_weights]
+        
+        nx.draw_networkx_edges(G_user, pos,
+                             width=edge_widths,
+                             alpha=0.4,
+                             edge_color='gray')
+        
+        # Add some node labels (limit to top 10 nodes by degree)
+        top_nodes = sorted(G_user.degree(), key=lambda x: x[1], reverse=True)[:10]
+        labels = {node: f"User {i+1}" for i, (node, _) in enumerate(top_nodes)}
+        nx.draw_networkx_labels(G_user, pos, labels, font_size=8)
+        
+        plt.title("User Interaction Network")
+        plt.axis('off')
         st.pyplot(plt)
         plt.close()
+    else:
+        st.warning("No user interaction data available. This might be because there are no likes between different users yet.")
     
     # Activity Network Analysis
     st.markdown("### Activity Co-occurrence Network")
     activity_network = get_activity_network()
+    
+    # Debug information
+    st.write("Debug - Activity Network Data Shape:", activity_network.shape)
     if not activity_network.empty:
+        st.write("Debug - Sample Activity Network Data:", activity_network.head())
+        
         G_activity = create_network_graph(activity_network, 'activity1', 'activity2', 'co_occurrence')
         activity_metrics = analyze_network(G_activity)
+        
+        # Debug information
+        st.write("Debug - Number of nodes in activity network:", G_activity.number_of_nodes())
+        st.write("Debug - Number of edges in activity network:", G_activity.number_of_edges())
         
         # Display top activities by centrality
         st.markdown("#### Most Central Activities")
@@ -960,13 +1002,37 @@ with tab6:
         })
         st.dataframe(centrality_df.sort_values('Degree Centrality', ascending=False).head(10))
         
-        # Plot activity network
-        plt.figure(figsize=(12, 10))
-        pos = nx.spring_layout(G_activity)
-        nx.draw(G_activity, pos, with_labels=True, node_size=100, 
-                node_color='lightgreen', alpha=0.6, font_size=8)
+        # Plot activity network with improved visualization
+        plt.figure(figsize=(15, 12))
+        pos = nx.spring_layout(G_activity, k=2, iterations=50)
+        
+        # Draw nodes
+        nx.draw_networkx_nodes(G_activity, pos,
+                             node_size=200,
+                             node_color='lightgreen',
+                             alpha=0.7)
+        
+        # Draw edges with varying widths based on weight
+        edge_weights = [G_activity[u][v]['weight'] for u, v in G_activity.edges()]
+        max_weight = max(edge_weights) if edge_weights else 1
+        edge_widths = [3 * (w/max_weight) for w in edge_weights]
+        
+        nx.draw_networkx_edges(G_activity, pos,
+                             width=edge_widths,
+                             alpha=0.4,
+                             edge_color='gray')
+        
+        # Draw labels
+        nx.draw_networkx_labels(G_activity, pos,
+                              font_size=8,
+                              font_weight='bold')
+        
+        plt.title("Activity Co-occurrence Network")
+        plt.axis('off')
         st.pyplot(plt)
         plt.close()
+    else:
+        st.warning("No activity co-occurrence data available. This might be because there are no posts with multiple activities yet.")
     
     # Popular Cities Analysis
     st.subheader("Most Popular Cities")
