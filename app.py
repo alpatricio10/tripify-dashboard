@@ -917,22 +917,20 @@ with tab6:
     
     # Network Analysis Section
     st.subheader("Network Analysis")
+    st.markdown("""
+        This section analyzes the relationships between users and activities to understand community engagement and activity patterns.
+    """)
     
     # User Network Analysis
     st.markdown("### User Interaction Network")
+    st.markdown("""
+        Shows how users interact through likes and posts. A dense network indicates high user engagement, while clustering shows the formation of user communities.
+    """)
     user_network = get_user_network()
     
-    # Debug information
-    st.write("Debug - User Network Data Shape:", user_network.shape)
     if not user_network.empty:
-        st.write("Debug - Sample User Network Data:", user_network.head())
-        
         G_user = create_network_graph(user_network, 'user1', 'user2', 'interaction_count')
         user_metrics = analyze_network(G_user)
-        
-        # Debug information
-        st.write("Debug - Number of nodes in user network:", G_user.number_of_nodes())
-        st.write("Debug - Number of edges in user network:", G_user.number_of_edges())
         
         col1, col2 = st.columns(2)
         with col1:
@@ -978,22 +976,20 @@ with tab6:
     
     # Activity Network Analysis
     st.markdown("### Activity Co-occurrence Network")
+    st.markdown("""
+        Reveals which activities are commonly planned together. Central activities are those that appear frequently in trip plans and connect different types of experiences.
+    """)
     activity_network = get_activity_network()
     
-    # Debug information
-    st.write("Debug - Activity Network Data Shape:", activity_network.shape)
     if not activity_network.empty:
-        st.write("Debug - Sample Activity Network Data:", activity_network.head())
-        
         G_activity = create_network_graph(activity_network, 'activity1', 'activity2', 'co_occurrence')
         activity_metrics = analyze_network(G_activity)
         
-        # Debug information
-        st.write("Debug - Number of nodes in activity network:", G_activity.number_of_nodes())
-        st.write("Debug - Number of edges in activity network:", G_activity.number_of_edges())
-        
         # Display top activities by centrality
         st.markdown("#### Most Central Activities")
+        st.markdown("""
+            Activities with high centrality scores are the most influential in trip planning, often serving as key attractions that connect other activities.
+        """)
         centrality_df = pd.DataFrame({
             'Activity': list(activity_metrics['degree_centrality'].keys()),
             'Degree Centrality': list(activity_metrics['degree_centrality'].values()),
@@ -1036,6 +1032,9 @@ with tab6:
     
     # Popular Cities Analysis
     st.subheader("Most Popular Cities")
+    st.markdown("""
+        Shows which cities generate the most user engagement and content creation, helping identify key markets and user preferences.
+    """)
     popular_cities = get_popular_cities()
     
     fig = px.bar(
@@ -1052,6 +1051,9 @@ with tab6:
     
     # Popular Activities Analysis
     st.subheader("Top Activities")
+    st.markdown("""
+        Highlights the most frequently mentioned activities, indicating what experiences users find most valuable to share and recommend.
+    """)
     popular_activities = get_popular_activities()
     
     fig = px.bar(
@@ -1064,28 +1066,6 @@ with tab6:
         color_continuous_scale='Viridis'
     )
     fig.update_layout(height=400)
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # City-Activity Network Analysis
-    st.subheader("City-Activity Relationships")
-    city_activity = get_city_activity_network()
-    
-    # Create a heatmap of city-activity relationships
-    pivot_data = city_activity.pivot_table(
-        values='count',
-        index='city',
-        columns='activity',
-        fill_value=0
-    )
-    
-    fig = px.imshow(
-        pivot_data,
-        title='Activity Distribution Across Cities',
-        labels=dict(x="Activity", y="City", color="Count"),
-        aspect="auto",
-        color_continuous_scale='Viridis'
-    )
-    fig.update_layout(height=500)
     st.plotly_chart(fig, use_container_width=True)
     
     # Additional Insights
